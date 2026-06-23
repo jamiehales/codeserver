@@ -1,32 +1,37 @@
-#!/usr/bin/env bash
-set -eo pipefail
+#!/bin/sh
+set -eu
 
-PUID="${PUID:-1000}"
-PGID="${PGID:-1000}"
-umask_value="${UMASK:-0022}"
+PUID="${PUID:-99}"
+PGID="${PGID:-100}"
+UMASK="${UMASK:-0002}"
 
+# Only adjust if running as root
 if [ "$(id -u)" = '0' ]; then
-  if ! getent group "$PGID" >/dev/null 2>&1; then
-    groupadd -g "$PGID" coder
+  # Adjust coder user and group IDs to match PUID/PGID
+  if getent group "$PGID" >/dev/null 2>&1; then
+    # Group exists with PGID, rename it to coder if needed
+    existing_group=$(getent group "$PGID" | cut -d: -f1)
+    if [ "$existing_group" != "coder" ]; then
+      groupmod -n coder "$existing_group" 2>/dev/null || true
+    fi
   else
-    groupmod -g "$PGID" coder || true
+    # Group doesn't exist, create or modify to PGID
+    groupmod -g "$PGID" coder 2>/dev/null || groupadd -g "$PGID" coder
   fi
 
-  if id coder >/dev/null 2>&1; then
-    usermod -u "$PUID" -g "$PGID" coder || true
-  fi
+  # Adjust user ID
+  usermod -u "$PUID" -g "$PGID" coder 2>/dev/null || true
 
+  # Fix home directory ownership
   if [ -d "/home/coder" ]; then
-    chown -R "$PUID":"$PGID" /home/coder || true
+    chown -R "$PUID":"$PGID" /home/coder
   fi
 
   export HOME=/home/coder
 fi
 
-umask "$umask_value"
+# Apply umask before starting services
+umask "$UMASK"
 
-if [ "$(id -u)" = '0' ]; then
-  exec gosu coder "$@"
-else
-  exec "$@"
-fi
+# Call the original code-server entrypoint with all args
+exec /usr/bin/entrypoint.sh "$@"

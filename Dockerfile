@@ -28,11 +28,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ENV PATH=/usr/local/cargo/bin:$PATH
+ENV PUID=99 PGID=100 UMASK=0002
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER coder
+USER root
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["code-server"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "."]
