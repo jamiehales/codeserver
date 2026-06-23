@@ -29,4 +29,10 @@ RUN apt-get update \
 
 ENV PATH=/usr/local/cargo/bin:$PATH
 
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 USER coder
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["code-server"]
