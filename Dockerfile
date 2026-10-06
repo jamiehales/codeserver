@@ -17,6 +17,7 @@ RUN apt-get update \
         build-essential \
         python3 \
         python3-pip \
+        tmux \
         pkg-config \
         libssl-dev \
         zlib1g-dev \
@@ -40,7 +41,8 @@ RUN touch /home/coder/.bashrc && \
     echo '[ -f "${HOME}/.config/.bashrc" ] && . "${HOME}/.config/.bashrc"' >> /home/coder/.bashrc
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY claude-supervisor.sh /usr/local/bin/claude-supervisor.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/claude-supervisor.sh
 
 USER root
 
