@@ -26,6 +26,8 @@ RUN apt-get update \
 
 ENV PATH=/usr/local/cargo/bin:$PATH
 ENV PUID=99 PGID=100 UMASK=0002
+# Keep Claude Code settings/history on the persisted ~/.config mount
+ENV CLAUDE_CONFIG_DIR=/home/coder/.config/claude
 
 # Set up .bashrc with nvm init and .config sourcing
 RUN touch /home/coder/.bashrc && \

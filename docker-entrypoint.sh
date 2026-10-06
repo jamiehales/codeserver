@@ -25,6 +25,19 @@ if [ "$(id -u)" = '0' ]; then
     useradd -u "$PUID" -g "$PGID" -m -s /bin/bash coder
   fi
 
+  # Claude Code config lives on the persisted ~/.config mount (CLAUDE_CONFIG_DIR).
+  # One-time migration of any existing non-persisted ~/.claude state.
+  CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-/home/coder/.config/claude}"
+  if [ ! -e "$CLAUDE_DIR" ]; then
+    mkdir -p "$(dirname "$CLAUDE_DIR")"
+    if [ -d /home/coder/.claude ]; then
+      cp -a /home/coder/.claude "$CLAUDE_DIR"
+      [ -f /home/coder/.claude.json ] && cp -a /home/coder/.claude.json "$CLAUDE_DIR/.claude.json"
+    else
+      mkdir -p "$CLAUDE_DIR"
+    fi
+  fi
+
   # Fix home directory ownership
   if [ -d "/home/coder" ]; then
     chown -R "$PUID":"$PGID" /home/coder
