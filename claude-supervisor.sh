@@ -1,0 +1,68 @@
+#!/bin/bash
+# Keeps a "claude --remote-control" instance running (in a detached tmux session)
+# for every project folder directly under DEV_ROOT.
+#  - New folder           -> instance started
+#  - Instance exited      -> restarted on the next check
+#  - NOCLAUDE in folder   -> instance killed and not restarted
+#  - Folder removed       -> instance killed
+# Attach to an instance with: tmux -L claude attach -t claude-<folder>
+set -u
+
+DEV_ROOT="${DEV_ROOT:-/mnt/development}"
+INTERVAL="${CLAUDE_SUPERVISOR_INTERVAL:-30}"
+TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude}"
+PREFIX="claude-"
+
+export NVM_DIR="${NVM_DIR:-$HOME/.local/share/nvm}"
+# shellcheck disable=SC1091
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+log() { printf '%s [claude-supervisor] %s\n' "$(date '+%F %T')" "$*"; }
+tm() { tmux -L "$TMUX_SOCKET" "$@"; }
+
+# tmux session names can't contain '.' or ':'
+session_name() { printf '%s%s' "$PREFIX" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '_')"; }
+
+while true; do
+  if ! command -v claude >/dev/null 2>&1; then
+    log "claude not found on PATH yet; waiting"
+    sleep "$INTERVAL"
+    continue
+  fi
+
+  declare -A wanted=()
+  for dir in "$DEV_ROOT"/*/; do
+    [ -d "$dir" ] || continue
+    dir="${dir%/}"
+    name="$(basename "$dir")"
+    case "$name" in .*) continue ;; esac # skip hidden folders
+    session="$(session_name "$name")"
+
+    if [ -e "$dir/NOCLAUDE" ]; then
+      if tm has-session -t "=$session" 2>/dev/null; then
+        log "NOCLAUDE found in $name; stopping"
+        tm kill-session -t "=$session"
+      fi
+      continue
+    fi
+
+    wanted["$session"]=1
+    if ! tm has-session -t "=$session" 2>/dev/null; then
+      log "starting claude in $name"
+      tm new-session -d -s "$session" -c "$dir" "exec claude --remote-control" \
+        || log "failed to start session for $name"
+    fi
+  done
+
+  # Kill sessions whose folder was deleted or is now excluded
+  while IFS= read -r session; do
+    case "$session" in "$PREFIX"*) ;; *) continue ;; esac
+    if [ -z "${wanted[$session]:-}" ]; then
+      log "stopping $session (folder removed or excluded)"
+      tm kill-session -t "=$session"
+    fi
+  done < <(tm list-sessions -F '#{session_name}' 2>/dev/null)
+
+  unset wanted
+  sleep "$INTERVAL"
+done

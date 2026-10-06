@@ -76,6 +76,11 @@ NVMSCRIPT
   chmod +x /tmp/nvm-setup.sh
   su -s /bin/sh coder /tmp/nvm-setup.sh
 
+  # Start the Claude remote-control supervisor in the background as coder
+  if [ "${CLAUDE_SUPERVISOR:-true}" = "true" ]; then
+    su -s /bin/bash coder -c 'umask '"$UMASK"'; export HOME=/home/coder; nohup /usr/local/bin/claude-supervisor.sh >>"$HOME/.config/claude-supervisor.log" 2>&1 &'
+  fi
+
   export HOME=/home/coder
 fi
 
