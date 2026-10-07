@@ -12,6 +12,7 @@ DEV_ROOT="${DEV_ROOT:-/mnt/development}"
 INTERVAL="${CLAUDE_SUPERVISOR_INTERVAL:-30}"
 TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude}"
 SESSION_PREFIX="claude-"
+MODEL="${CLAUDE_MODEL:-sonnet}"
 
 export NVM_DIR="${NVM_DIR:-$HOME/.local/share/nvm}"
 # shellcheck disable=SC1091
@@ -74,7 +75,7 @@ while true; do
     if ! tm has-session -t "=$session" 2>/dev/null; then
       log "starting claude in $name"
       prepare_config "$dir" || log "failed to update claude config for $name"
-      tm new-session -d -s "$session" -c "$dir" "exec claude --remote-control --name $(printf %q "code-$name")" \
+      tm new-session -d -s "$session" -c "$dir" "exec claude --model $(printf %q "$MODEL") --remote-control --name $(printf %q "code-$name")" \
         || log "failed to start session for $name"
     fi
   done
