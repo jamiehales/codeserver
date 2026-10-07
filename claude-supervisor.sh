@@ -2,7 +2,7 @@
 # Keeps a "claude --remote-control" instance running (in a detached tmux session)
 # for every project folder directly under DEV_ROOT.
 #  - New folder           -> instance started
-#  - Instance exited      -> restarted on the next check
+#  - Instance exited      -> restarted immediately (5s pause if it died within 5s)
 #  - NOCLAUDE in folder   -> instance killed and not restarted
 #  - Folder removed       -> instance killed
 # Attach to an instance with: tmux -L claude attach -t claude-<folder>
@@ -75,7 +75,15 @@ while true; do
     if ! tm has-session -t "=$session" 2>/dev/null; then
       log "starting claude in $name"
       prepare_config "$dir" || log "failed to update claude config for $name"
-      tm new-session -d -s "$session" -c "$dir" "exec claude --model $(printf %q "$MODEL") --remote-control --name $(printf %q "code-$name")" \
+      # claude runs in a loop inside the tmux session so it restarts immediately on
+      # exit/crash; a run shorter than 5s is followed by a pause to avoid a hot loop.
+      cmd="while true; do
+        start=\$(date +%s)
+        claude --model $(printf %q "$MODEL") --remote-control --name $(printf %q "code-$name")
+        echo \"claude exited (\$?); restarting\"
+        [ \$((\$(date +%s) - start)) -lt 5 ] && sleep 5
+      done"
+      tm new-session -d -s "$session" -c "$dir" "$cmd" \
         || log "failed to start session for $name"
     fi
   done
