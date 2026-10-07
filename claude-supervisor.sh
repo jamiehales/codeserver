@@ -23,6 +23,30 @@ tm() { tmux -L "$TMUX_SOCKET" "$@"; }
 # tmux session names can't contain '.' or ':'
 session_name() { printf '%s%s' "$SESSION_PREFIX" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '_')"; }
 
+# Unattended sessions would otherwise sit at the first-run theme picker and the
+# "trust this folder" prompt, so mark onboarding done and the folder trusted.
+prepare_config() {
+  python3 - "$1" <<'PY'
+import json, os, sys, tempfile
+cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
+path = os.path.join(cfg_dir, ".claude.json")
+try:
+    with open(path) as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+project = data.setdefault("projects", {}).setdefault(sys.argv[1], {})
+if data.get("hasCompletedOnboarding") and project.get("hasTrustDialogAccepted"):
+    sys.exit(0)
+data["hasCompletedOnboarding"] = True
+project["hasTrustDialogAccepted"] = True
+fd, tmp = tempfile.mkstemp(dir=cfg_dir, prefix=".claude.json.")
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+os.replace(tmp, path)
+PY
+}
+
 while true; do
   if ! command -v claude >/dev/null 2>&1; then
     log "claude not found on PATH yet; waiting"
@@ -49,7 +73,8 @@ while true; do
     wanted["$session"]=1
     if ! tm has-session -t "=$session" 2>/dev/null; then
       log "starting claude in $name"
-      tm new-session -d -s "$session" -c "$dir" "exec claude --remote-control" \
+      prepare_config "$dir" || log "failed to update claude config for $name"
+      tm new-session -d -s "$session" -c "$dir" "exec claude --remote-control --name $(printf %q "code-$name")" \
         || log "failed to start session for $name"
     fi
   done
