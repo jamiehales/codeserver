@@ -50,8 +50,11 @@ RUN touch /home/coder/.bashrc && \
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY claude-supervisor.sh /usr/local/bin/claude-supervisor.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/claude-supervisor.sh
+COPY claude-session.sh /usr/local/bin/claude-session.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/claude-supervisor.sh /usr/local/bin/claude-session.sh
 
 USER root
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "."]
+# --single-child: docker stop's signal goes to the entrypoint alone, which shuts
+# the claude sessions down before code-server.
+ENTRYPOINT ["/usr/bin/dumb-init", "--single-child", "--", "/usr/local/bin/docker-entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "."]

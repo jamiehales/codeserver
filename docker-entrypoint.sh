@@ -66,15 +66,16 @@ if [ ! -f "$NVM_DIR/nvm.sh" ]; then
   . "$NVM_DIR/nvm.sh"
   nvm install 24
   nvm alias default 24
-  npm install -g pnpm astro vercel @anthropic-ai/claude-code
+  npm install -g pnpm astro vercel @anthropic-ai/claude-code@latest
 else
   # Subsequent boots: just update Claude Code
   . "$NVM_DIR/nvm.sh"
-  npm install -g @anthropic-ai/claude-code
+  npm install -g @anthropic-ai/claude-code@latest
 fi
 NVMSCRIPT
   chmod +x /tmp/nvm-setup.sh
-  su -s /bin/sh coder /tmp/nvm-setup.sh
+  # Don't let a failed install, such as npm being unreachable, stop the container.
+  su -s /bin/sh coder /tmp/nvm-setup.sh || echo "Tool setup failed; continuing with what's installed" >&2
 
   # Start the Claude remote-control supervisor in the background (as root, like the rest of the session)
   if [ "${CLAUDE_SUPERVISOR:-true}" = "true" ]; then
@@ -87,6 +88,28 @@ fi
 # Apply umask before starting services
 umask "$UMASK"
 
-# Call the original code-server entrypoint with all arguments
-# This preserves the original startup behavior (fixuid, DOCKER_USER support, etc.)
-exec /usr/bin/entrypoint.sh "$@"
+# Run the original code-server entrypoint, which preserves the original startup
+# behavior (fixuid, DOCKER_USER support, etc.). It stays a child of this script so
+# that on docker stop the claude sessions can shut down before code-server does:
+# the container goes down as soon as code-server exits.
+/usr/bin/entrypoint.sh "$@" &
+server=$!
+
+stopping=false
+stop() {
+  $stopping && return
+  stopping=true
+  /usr/local/bin/claude-supervisor.sh stop
+  kill -TERM "$server" 2>/dev/null
+}
+trap stop TERM INT
+
+set +e
+wait "$server"
+status=$?
+while kill -0 "$server" 2>/dev/null; do
+  wait "$server"
+  status=$?
+done
+stop
+exit "$status"

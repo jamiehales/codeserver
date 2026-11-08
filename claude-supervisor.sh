@@ -6,6 +6,8 @@
 #  - NOCLAUDE in folder   -> instance killed and not restarted
 #  - Folder removed       -> instance killed
 # Attach to an instance with: tmux -L claude attach -t claude-<folder>
+#
+# "claude-supervisor.sh stop" shuts everything down cleanly, for docker stop.
 set -u
 
 DEV_ROOT="${DEV_ROOT:-/mnt/development}"
@@ -13,13 +15,45 @@ INTERVAL="${CLAUDE_SUPERVISOR_INTERVAL:-30}"
 TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude}"
 SESSION_PREFIX="claude-"
 MODEL="${CLAUDE_MODEL:-sonnet}"
+STATE_DIR="${CLAUDE_SUPERVISOR_STATE_DIR:-/tmp}"
+PID_FILE="$STATE_DIR/claude-supervisor.pid"
+STOP_FLAG="$STATE_DIR/claude-supervisor.stopping"
+SHUTDOWN_TIMEOUT="${CLAUDE_SHUTDOWN_TIMEOUT:-8}"
+SESSION_SCRIPT="${CLAUDE_SESSION_SCRIPT:-/usr/local/bin/claude-session.sh}"
+
+log() { printf '%s [claude-supervisor] %s\n' "$(date '+%F %T')" "$*"; }
+tm() { tmux -L "$TMUX_SOCKET" "$@"; }
+
+# Stops the supervisor and session loops so nothing restarts, asks every claude
+# process to exit (including ones in VS Code terminals), and waits for them.
+stop_all() {
+  touch "$STOP_FLAG"
+  [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null
+  pkill -TERM -x claude
+  local waited=0
+  while pgrep -x claude >/dev/null && [ "$waited" -lt "$SHUTDOWN_TIMEOUT" ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if pgrep -x claude >/dev/null; then
+    log "claude still running after ${SHUTDOWN_TIMEOUT}s; stopping anyway"
+  else
+    log "all claude sessions exited after ${waited}s"
+  fi
+  tm kill-server 2>/dev/null
+}
+
+if [ "${1:-}" = "stop" ]; then
+  stop_all
+  exit 0
+fi
+
+rm -f "$STOP_FLAG"
+echo "$$" >"$PID_FILE"
 
 export NVM_DIR="${NVM_DIR:-$HOME/.local/share/nvm}"
 # shellcheck disable=SC1091
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-
-log() { printf '%s [claude-supervisor] %s\n' "$(date '+%F %T')" "$*"; }
-tm() { tmux -L "$TMUX_SOCKET" "$@"; }
 
 # tmux session names can't contain '.' or ':'
 session_name() { printf '%s%s' "$SESSION_PREFIX" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_-' '_')"; }
@@ -75,15 +109,7 @@ while true; do
     if ! tm has-session -t "=$session" 2>/dev/null; then
       log "starting claude in $name"
       prepare_config "$dir" || log "failed to update claude config for $name"
-      # claude runs in a loop inside the tmux session so it restarts immediately on
-      # exit/crash; a run shorter than 5s is followed by a pause to avoid a hot loop.
-      cmd="while true; do
-        start=\$(date +%s)
-        claude --model $(printf %q "$MODEL") --remote-control --name $(printf %q "code-$name")
-        echo \"claude exited (\$?); restarting\"
-        [ \$((\$(date +%s) - start)) -lt 5 ] && sleep 5
-      done"
-      tm new-session -d -s "$session" -c "$dir" "$cmd" \
+      tm new-session -d -s "$session" -c "$dir" "$(printf '%q %q' "$SESSION_SCRIPT" "$MODEL")" \
         || log "failed to start session for $name"
     fi
   done
